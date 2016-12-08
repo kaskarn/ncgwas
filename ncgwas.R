@@ -47,6 +47,7 @@ nckeep <- dt_ana$ncid
 #Create X and y model matrices, for LMs
 X <- as.matrix(dt_ana[,all.vars(form),with =FALSE][,int:=1])
 y <- dt_ana[,get(outcome)]
+nvar <- ncol(X)
 
 #Finalize analytical datasets, for GLMs
 dt_ana <- dt_ana[,c(outcome, all.vars(form)),with=FALSE]
@@ -153,7 +154,7 @@ for(i in keepchr){
     res <- rbindlist(res)
     
     #Get p-values for linear model (which don't already compute it)
-    if(type == "linear") res[,p := 2*(1-pnorm(abs(b/se)))]
+    if(type == "linear") res[,p := 2*(1-pt(abs(b/se),n-nvar)) ]
     
     #Add chromosome column, and remove j-index column
     res[,chr := i]

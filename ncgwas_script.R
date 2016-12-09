@@ -158,7 +158,7 @@ library(speedglm)
 #Default values not specified here to avoid overriding --source file with default values
 option_list = list(
   make_option("--source", type = "character", 
-              help = "R file to source before options are parsed. Allows specifying inputs 
+              help = ".R file to source before options are parsed. Allows specifying inputs 
               in an R scripts rather than, or in addition to the command line. Optional.",
               metavar = "source file"),
   make_option(c("-p", "--pheno"), type = "character", 
@@ -183,11 +183,11 @@ option_list = list(
   make_option(c("-i", "--idvar"), type = "character",
               help = "Name of ID variable in phenotype file. Default is leftmost variable in phenotype file", metavar = "ID VARIABLE"),
   make_option(c("-x", "--mincaf"), type = "double",
-              help = "Minimum allele frequency required for inclusion. Default is 0.01", metavar = c("MIN CAF")),
+              help = "Minimum allele frequency required for inclusion. Default is 0 (keep all)", metavar = c("MIN CAF")),
   make_option(c("-c", "--chr"), type = "character",
               help = "Chromosomes to run the GWAS on, specified as an expression for an R vector, e.g. 1:22, c(1,3,22)",
               metavar = "chromosome(s)"),
-  make_option(c("--norun"), type = "logical", default = FALSE,
+  make_option(c("--norun"), type = "logical", action = "store_true", default = "FALSE",
               help = "Stop before running the GWAS, to inspect log for debugging purposes",
               metavar = "norun")
 )
@@ -261,7 +261,7 @@ nckeep <- dt_ana$ncid
 
 #Create X and y model matrices, for LMs
 X <- as.matrix(dt_ana[,all.vars(form),with =FALSE][,int:=1])
-y <- dt_ana[,get(outcome)]
+y <- as.numeric(dt_ana[,get(outcome)])
 nvar <- ncol(X)
 gpos <- match("g", colnames(X))
 

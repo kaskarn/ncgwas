@@ -138,10 +138,9 @@
 ###################################################################################### 
 ############################     START OF SCRIPT      ################################
 ###################################################################################### 
-#Clear environment just in case
-rm(list=ls())
 
 #Load libraries
+library(Rcpp)
 library(MASS)
 library(Matrix)
 library(Rmpi)
@@ -338,10 +337,10 @@ splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
 #Send ALL objects (because why not), and the needed libraries to worker threads
 mpi.bcast.Robj2slave(all = TRUE) 
 mpi.bcast.cmd({
-  library(data.table); library(ncdf4)
+  library(Rcpp); library(data.table)
   library(Matrix); library(MASS)
   library(RcppEigen); library(parallel)
-  library(speedglm)
+  library(speedglm); library(ncdf4)
 })
 
 

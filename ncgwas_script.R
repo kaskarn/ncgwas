@@ -244,7 +244,7 @@ dir.create(resdir,showWarnings = FALSE, recursive = TRUE)
 Epidata <- fread(pheno)
 if(!exists("idvar")) idvar <- names(Epidata)[1]
 invisible(Epidata[,g:=rnorm(nrow(Epidata))])
-Epidata <- na.omit(Epidata[,c("id", outcome, all.vars(form)), with = F])
+Epidata <- na.omit(Epidata[,c(idvar, outcome, all.vars(form)), with = F])
 if(idvar != "Common_ID") setnames(Epidata, idvar, "Common_ID")
 setkey(Epidata, Common_ID)
 

@@ -2,55 +2,90 @@
 
 #### contact baldassa@email.unc.edu for questions
 
-library(snow)
+#Load libraries
+library(MASS)
+library(Matrix)
 library(Rmpi)
 library(optparse)
-
-option_list = list(
-	make_option(c("-p", "--pheno"), type = "character", default = NULL, 
-		help = "Phenotype file path", metavar = "character"),
-	make_option(c("-r", "--resdir"), type = "character", default = NULL,
-		help = "Results directory path", metavar = "character")
-)
-opt_parser = OptionParser(option_list=option_list);
-opt = parse_args(opt_parser);
-
 library(data.table)
 library(ncdf4)
 library(RcppEigen)
-library(parallel)
 library(speedglm)
 
-############ start of inputs ####################################################################################
+###################################################
+################# Parsing step  ###################
+###################################################
 
-#The objective is to specify the inputs from a bash/tcsh script, to avoid
-#Modifying this file 
+#Default values not specified here to avoid overriding --source file with default values
+option_list = list(
+  make_option(c("--source"), type = "character", 
+		help = "R file to source before options are parsed. Allows specifying inputs in an R scripts rather than. or in addition to the command line", 
+		metavar = "source file"),
+	make_option(c("-p", "--pheno"), type = "character", 
+		help = "Phenotype file path", metavar = "phenotype file"),
+	make_option(c("-r", "--resdir"), type = "character", 
+		help = "Results directory path", metavar = "results"),
+	make_option(c("-g", "--gpath"), type = "character",
+	  help = "Path to NCDF genetic data", metavar = "Gene data"),
+	make_option(c("-s", "--study"), type = "character", 
+	  help = "WHI study", metavar = "study"),	
+	make_option(c("-o", "--outcome"), type = "character", 
+	  help = "Outcome variable to be used in models", metavar = "Outcome"),	
+	make_option(c("-f", "--form"), type = "character", 
+	  help = "Right-hand side of the model, starting with ~ in R-style", metavar = "Formula"),	
+	make_option(c("-m", "--model"), type = "character",
+	  help = "Model type: linear or GLM", metavar = "Model"),
+	make_option(c("--family"), type = "character",
+	  help = "For GLMs: Distribution family of outcome (binomial, Gamma, gaussian,...) see ?family", metavar = "GLM Family"),
+	make_option(c("--link"), type = "character",
+	  help = "For GLMs: Link function", metavar = "GLM Link"),
+	make_option(c("-i", "--idvar"), type = "character",
+	  help = "Name of ID variable in phenotype file")
+)
+opt_parser = OptionParser(option_list=option_list)
+opt = parse_args(opt_parser)
 
-phenodir <- "/nas02/depts/epi/CVDGeneNas/antoine/ECG_GWAS/WHI/phenotypes/" #phenotype file directory
-pheno <- "ecg_whi_whites_fi.txt" #Name of the .txt phenotype file
-resdir <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/" #where to store results
-gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/" #where the 1KG .nc files live
-study <- "GARNET" #the WHI study
-outcome <- "jt" #The outcome of interest
-form <- ~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age
+#Reads command-line options into like-named variables. Overrides --source for convenience
+if(!is.null(opt$source)) source(opt$source)
+cat("\n\nCommand line arguments:\n")
+for(i in names(opt)) {
+  cat("\t", i,":",opt[[i]],"\n")
+  assign(i, opt[[i]])
+}
+#Sets default if not specified in command line or --source file
+if(!exists("gpath")) gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
+if(!exists("resdir")) resdir <- "ncgwas_results"
+if(!exists("model")) model <- "linear"
+if(model == "glm") {if(!exists(family)) family <- "binomial"; if(!exists(link)) link <- NULL}
 
-type <- "linear" #Right now just "linear" or "logistic"
+#Exit if something important is missing
+im <- c("form", "outcome", "pheno")
+if(sum(is.na(im_mis <- match(im, ls()))) > 0){
+  print(paste("Parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  are missing"))
+  mpi.close.Rslaves()
+  mpi.quit()
+}
 
-family <- "" #Optional: family for GLM -- default is binomial. 
-link <- "" #Optional: GLM link function -- default is family default (e.g. logit for binomial)
-keepchr <- 22 #Chromosomes to restrict to
+###################################################
+############### End of parsing step ###############
+###################################################
 
-idvar <- "id"
-############# end of inputs ######################################################################################
+
+###################################################
+################   Setup step   ###################
+###################################################
+
+#Turn formula input into formula object
+form <- as.formula(form)
 
 #Create directory/ies for results
 dir.create(resdir,showWarnings = FALSE, recursive = TRUE)
 
 #Load and pare down data
-Epidata <- fread(paste0(phenodir,pheno))
+Epidata <- fread(pheno)
 invisible(Epidata[,g:=rnorm(nrow(Epidata))])
 Epidata <- na.omit(Epidata[,c("id", outcome, all.vars(form)), with = F])
-setnames(Epidata, idvar, "Common_ID")
+if(idvar != "Common_ID") setnames(Epidata, idvar, "Common_ID")
 setkey(Epidata, Common_ID)
 
 #order ids as in NC file
@@ -75,31 +110,27 @@ dt_ana <- dt_ana[,c(outcome, all.vars(form)),with=FALSE]
 #Generate fit function from file inputs. Workhorse functions are
 #RcppEigen::fastLmPure for linear models and speedglm::speedglm 
 #for generalized linear models
-qfit_setup <- function(gpos, d_type, family = "binomial", link = ""){
-  if(d_type == "linear"){
+qfit_setup <- function(gpos, model, family = family, link = link){
+  if(model == "linear"){
     function(gnow){
       ind <- which(!is.na(gnow))
       X[,gpos] <- gnow
       tm <- fastLmPure(X[ind,],y[ind])
       list(tm$coefficients[gpos], tm$se[gpos])
     }
-  }else if(d_type == "glm"){
+  }else if(model == "glm"){
     if (family == "") family <- "binomial"
     function(gnow){
       ind <- which(!is.na(gnow))
       dt_ana[,g:=gnow]
-      #Higher row.chunk will run faster when calculating XX', but will take more
-      #memory. 2000 should be fine but change at will. An improvement will be 
-      #to deduce XX' from previous iterations using algebra (should work, but
-      #will take some code, maybe X2X2' = XX' :/ g :* g2 )
       tm <- speedglm(form,data=dt_ana[ind],
-                     family=Gamma(),
+                     family=do.call(family,as.list(link)),
                      set.default=list(row.chunk=2000))
       as.list(summary(tm)[gpos,-3])
     }
-  }else stop("Specify type as linear or logistic")
+  }else stop("Specify model as linear or logistic")
 }
-qfit <- qfit_setup(match("g", all.vars(form))+1, type)
+qfit <- qfit_setup(match("g", all.vars(form))+1, model)
 
 #Split function
 splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
@@ -108,29 +139,39 @@ splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
 mpi.bcast.Robj2slave(all = TRUE) 
 mpi.bcast.cmd({
   library(data.table); library(ncdf4)
+  library(Matrix); library(MASS)
   library(RcppEigen); library(parallel)
   library(speedglm)
 })
 
-#The number of workers, -1 because I think the master thread should not count
+#The number of workers, -1 because we omit the master thread
 nworkers <- mpi.comm.size() - 1
 
 #Data for debugging
-print(paste("Universe size:", mpi.universe.size()))
-print(paste("Comm size:", mpi.comm.size()))
+cat("\nUniverse size:", mpi.universe.size())
+cat("\nComm size:", mpi.comm.size(), "\n")
+
+###################################################
+###########    End of setup step    ###############
+###################################################
+
+###################################################
+################   LET'S ROLL   ###################
+###################################################
 
 #Start loop over chromosomes
-for(i in keepchr){
+for(i in chr){
   
   #misc: get #snps, make output file name, send chromosome # to workers...
   rname <- paste0(resdir,"Chr",i,"_",outcome,"_",study,"_results.csv")
   mpi.bcast.Robj2slave(i)
   nc <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))
   nsnp <- nc$dim$SNPs$len
-  print(paste("Starting on chromosome:",i,"at:",Sys.time()))
+  print(paste("Starting on chromosome",i,"at:",Sys.time()))
   
-  #B
-  parts <- splitup(c(1,nsnp), 10)
+  #splitup task into 10 chunks to prevent memory overrun
+  if(nworkers < 20){ parts <- splitup(c(1,nsnp), ceiling(20/nworkers))
+  }else parts <- list(c(1,nsnp))
   for(p in parts){
     #Splitup task into indices for workers
     bits <- splitup(p,nworkers)
@@ -160,7 +201,7 @@ for(i in keepchr){
       #wrapped with the data.table by= operator. qfit is defined at the start of 
       #this file 
       
-      if(type == "linear"){ res_part[n > 0 & v > 0, c("b", "se") := qfit(dos[j,]), j]
+      if(model == "linear"){ res_part[n > 0 & v > 0, c("b", "se") := qfit(dos[j,]), j]
       }else res_part[n > 0 & v > 0, c("b", "se", "p") := qfit(dos[j,]), j]
       
       #Return data.table copy to avoid memory leaks
@@ -174,7 +215,7 @@ for(i in keepchr){
     res <- rbindlist(res)
     
     #Get p-values for linear model (which don't already compute it)
-    if(type == "linear") res[,p := 2*(1-pt(abs(b/se),n-nvar)) ]
+    if(model == "linear") res[,p := 2*(1-pt(abs(b/se),n-nvar)) ]
     
     #Add chromosome column, and remove j-index column
     res[,chr := i]
@@ -185,6 +226,7 @@ for(i in keepchr){
     }else fwrite(res, rname, sep = ",", append = TRUE)
   }
   print(paste("Done with chromosome:",i,"at:",Sys.time()))
+  print(paste("Size of chunked outputs: ", format(object.size(res), units = "MB")))
 }
 
 mpi.close.Rslaves()

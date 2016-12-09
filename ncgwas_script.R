@@ -100,9 +100,9 @@
 #
 # [[ 3 ]] Set input arguments (quotes are not needed, e.g. -o jt and -o "jt" will have the same effect) 
 # 
-## Inputs can be set by sourcing # an R file with the --source options, by listing them individually, or 
-# by a combination of these # two ways. When an argument is provided both in the command line and in a 
-# sourced file, # the command line value prevails. This allows to quickly run models changing only a few 
+## Inputs can be set by sourcing an R file with the --source options, by listing them individually, or 
+# by a combination of these two ways. When an argument is provided both in the command line and in a 
+# sourced file, the command line value prevails. This allows to quickly run models changing only a few 
 # arguments at a time. An example input source file follows: 
 #
 # example_inputs.R: (Quotes are now necessary to designate character variables since this is sourced by R)
@@ -112,7 +112,7 @@
 #   resdir    <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/"
 #   gpath     <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
 #   study     <- "GARNET"
-#   outcome   <- "qt" #
+#   outcome   <- "qt" 
 #   form      <- "~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age"
 #   chr       <-  22
 #   idvar     <- "id"
@@ -187,11 +187,25 @@ option_list = list(
               help = "Chromosomes to run the GWAS on, specified as an expression for an R vector, e.g. 1:22, c(1,3,22)",
               metavar = "chromosome(s)"),
   make_option(c("--norun"), type = "logical", action = "store_true", default = "FALSE",
-              help = "Stop before running the GWAS, to inspect log for debugging purposes",
+              help = "Stop before running the GWAS, to inspect log for debugging purposes. norun must be specified from the command line",
               metavar = "norun")
 )
-opt_parser = OptionParser(option_list=option_list)
+cat("\n_____________________________________________________________________\n\n")
+cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
+cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
+cat("| | | | (_| (_| |\\ V  V / (_| \\__ \\   \\__ \\ (__| |  | | |_) | |_ \n")
+cat("|_| |_|\\___\\__, | \\_/\\_/\\__,_|___/___|___/\\___|_|  |_| .__/ \\__|\n")
+cat("           |___/                 |_____|              |_|        \n")
+
+cat("ncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n\n\n")
+opt_parser = OptionParser(usage = "%prog [options] file", option_list=option_list)
 opt = parse_args(opt_parser)
+
+if(!exists("opt")){
+  cat("\nERROR:\tparse_args() returned an error\n\tdue to incorect arguments, see above error message. Check the program usage (--help)\n\n")
+  if(mpi.comm.size() > 1) mpi.close.Rslaves()
+  mpi.quit()
+}
 
 #Reads command-line options into like-named variables. Overrides --source for convenience
 if(!is.null(opt$source)) source(opt$source)
@@ -220,8 +234,8 @@ if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link
 #Check nothing something important is missing
 im <- c("outcome", "pheno")
 if(sum(is.na(im_mis <- match(im, ls()))) > 0){
-  cat("\nError: parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  are missing\n")
-  mpi.close.Rslaves()
+  cat("\nError: parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  must be provided\n")
+  if(mpi.comm.size() > 1) mpi.close.Rslaves()
   mpi.quit()
 }
 

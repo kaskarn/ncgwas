@@ -1,4 +1,19 @@
+#!/usr/bin/env Rscript 
+
 #### contact baldassa@email.unc.edu for questions
+
+library(snow)
+library(Rmpi)
+library(optparse)
+
+option_list = list(
+	make_option(c("-p", "--pheno"), type = "character", default = NULL, 
+		help = "Phenotype file path", metavar = "character"),
+	make_option(c("-r", "--resdir"), type = "character", default = NULL,
+		help = "Results directory path", metavar = "character")
+)
+opt_parser = OptionParser(option_list=option_list);
+opt = parse_args(opt_parser);
 
 library(data.table)
 library(ncdf4)
@@ -19,7 +34,7 @@ study <- "GARNET" #the WHI study
 outcome <- "jt" #The outcome of interest
 form <- ~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age
 
-type <- "glm" #Right now just "linear" or "logistic"
+type <- "linear" #Right now just "linear" or "logistic"
 
 family <- "" #Optional: family for GLM -- default is binomial. 
 link <- "" #Optional: GLM link function -- default is family default (e.g. logit for binomial)

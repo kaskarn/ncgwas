@@ -85,9 +85,9 @@
 #         Show this help message and exit
 
 # Inputs can be set by sourcing # an R file with the --source options, by listing them individually, or 
-# by a combination of these # two ways. When an argument is provided both in the command line and in a 
-# sourced file, # the command line value prevails. This allows to quickly run models changing only a few 
-# arguments at a time. An example input source file follows: 
+# by a combination of these two ways. When an argument is provided both in the command line and in a 
+# sourced file, the command line value prevails. This allows to quickly run models changing only a few 
+# arguments at a time from a base source file. An example input source file follows: 
 
 # inputs.R (assumed to be in working directory. Name doesn't matter)
 #
@@ -98,7 +98,7 @@
 # resdir    <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/" 
 # gpath     <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
 # study     <- "GARNET" 
-# outcome   <- "qt" #
+# outcome   <- "qt" 
 # form      <- "~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age"
 # chr       <-  22 
 # idvar     <- "id"
@@ -110,7 +110,7 @@
 #
 # [[4]] run on the LSF platform, with mpirun:
 # 
-# ex: bsub -n 30 -M 6 -o "test.txt" mpirun ./ncgwas_script.R --source inputs.R -m glm --glmfam Gamma --link log
+# ex: bsub -n 30 -M 10 -o "test.txt" mpirun ./ncgwas_script.R --source inputs.R -m glm --glmfam Gamma --link log
 
 ###################################################################################### 
 ############################     START OF SCRIPT      ################################
@@ -173,12 +173,15 @@ for(i in names(opt)) {
   cat("\t", i,":",opt[[i]],"\n")
   assign(i, opt[[i]])
 }
+if(is.character(chr)) chr <- eval(parse(text=chr))
 #Sets default if not specified in command line or --source file
 if(!exists("gpath")) gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
 if(!exists("resdir")) resdir <- "ncgwas_results"
 if(!exists("model")) model <- "linear"
-if(!exists("mincaf")) mincaf <- 1E-2
+if(!exists("mincaf")) mincaf <- 0
+if(!exists("chr")) chr <- 1:22
 if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link")) link <- NULL}
+
 
 #Exit if something important is missing
 im <- c("outcome", "pheno")
@@ -291,7 +294,7 @@ for(i in chr){
   nsnp <- nc$dim$SNPs$len
   
   #splitup task into 10 chunks to prevent memory overrun
-  if(nworkers < 20){ parts <- splitup(c(1,nsnp), ceiling(20/nworkers))
+  if(nworkers < 70){ parts <- splitup(c(1,nsnp), ceiling(70/nworkers))
   }else parts <- list(c(1,nsnp))
   for(p in parts){
     #Splitup task into indices for workers

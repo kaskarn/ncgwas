@@ -100,36 +100,13 @@
 #
 # [[ 3 ]] Set input arguments (quotes are not needed, e.g. -o jt and -o "jt" will have the same effect) 
 # 
-<<<<<<< HEAD
-# -h, --help
-#         Show this help message and exit
-
-# Inputs can be set by sourcing # an R file with the --source options, by listing them individually, or 
-# by a combination of these two ways. When an argument is provided both in the command line and in a 
-# sourced file, the command line value prevails. This allows to quickly run models changing only a few 
-# arguments at a time from a base source file. An example input source file follows: 
-
-# inputs.R (assumed to be in working directory. Name doesn't matter)
-=======
 ## Inputs can be set by sourcing an R file with the --source options, by listing them individually, or 
 # by a combination of these two ways. When an argument is provided both in the command line and in a 
 # sourced file, the command line value prevails. This allows to quickly run models changing only a few 
 # arguments at a time. An example input source file follows: 
->>>>>>> 79fae0bca71c7c5646771b5559714c20c529609c
 #
 # example_inputs.R: (Quotes are now necessary to designate character variables since this is sourced by R)
 #
-<<<<<<< HEAD
-# phenodir  <- "/nas02/depts/epi/CVDGeneNas/antoine/ECG_GWAS/WHI/phenotypes/" 
-# pheno     <- paste0(phenodir,"ecg_whi_whites_fi.txt")                      
-# resdir    <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/" 
-# gpath     <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
-# study     <- "GARNET" 
-# outcome   <- "qt" 
-# form      <- "~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age"
-# chr       <-  22 
-# idvar     <- "id"
-=======
 #   phenodir  <- "/nas02/depts/epi/CVDGeneNas/antoine/ECG_GWAS/WHI/phenotypes/"
 #   pheno     <- paste0(phenodir,"ecg_whi_whites_fi.txt")
 #   resdir    <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/"
@@ -141,7 +118,6 @@
 #   idvar     <- "id"
 #
 # end example_inputs.R
->>>>>>> 79fae0bca71c7c5646771b5559714c20c529609c
 #
 # Since the unspecified parameters have default values (see usage), this will run fine by calling
 # ./ncgwas_script.R --source inputs.R.  This is useful to run different models of a base sourced file,
@@ -157,7 +133,7 @@
 #
 # [[ 5 ]] run on the LSF platform, with mpirun: for example:
 # 
-# ex: bsub -n 30 -M 10 -o "test.txt" mpirun ./ncgwas_script.R --source inputs.R -m glm --glmfam Gamma --link log
+# ex: bsub -n 30 -M 6 -o "test.txt" mpirun ./ncgwas_script.R --source inputs.R -m glm --glmfam Gamma --link log
 
 ###################################################################################### 
 ############################     START OF SCRIPT      ################################
@@ -214,7 +190,7 @@ option_list = list(
               help = "Stop before running the GWAS, to inspect log for debugging purposes. norun must be specified from the command line",
               metavar = "norun")
 )
-cat("\n_____________________________________________________________________\n\n")
+cat("\n_____________________________________________________________________\n")
 cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
 cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
 cat("| | | | (_| (_| |\\ V  V / (_| \\__ \\   \\__ \\ (__| |  | | |_) | |_ \n")
@@ -247,21 +223,15 @@ for(i in names(opt)) {
   cat("\n")
   assign(i, opt[[i]])
 }
-if(is.character(chr)) chr <- eval(parse(text=chr))
 #Sets default if not specified in command line or --source file
 if(!exists("gpath")) gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
 if(!exists("resdir")) resdir <- "ncgwas_results"
 if(!exists("model")) model <- "linear"
-if(!exists("mincaf")) mincaf <- 0
-if(!exists("chr")) chr <- 1:22
+if(!exists("mincaf")) mincaf <- 1E-2
 if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link")) link <- NULL}
 
 
-<<<<<<< HEAD
-#Exit if something important is missing
-=======
 #Check nothing something important is missing
->>>>>>> 79fae0bca71c7c5646771b5559714c20c529609c
 im <- c("outcome", "pheno")
 if(sum(is.na(im_mis <- match(im, ls()))) > 0){
   cat("\nError: parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  must be provided\n")
@@ -407,48 +377,6 @@ for(i in chr){
   rname <- paste0(resdir,"Chr",i,"_",outcome,"_",study,"_results.csv")
   nsnp <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))$dim$SNPs$len
   
-<<<<<<< HEAD
-  #splitup task into 10 chunks to prevent memory overrun
-  if(nworkers < 70){ parts <- splitup(c(1,nsnp), ceiling(70/nworkers))
-  }else parts <- list(c(1,nsnp))
-  for(p in parts){
-    #Splitup task into indices for workers
-    bits <- splitup(p,nworkers)
-    res <- mpi.parLapply(bits, function(k) {
-      #Open nc file, get SNP names and create results dataset
-      nc <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))
-      snp_names <- ncvar_get(nc, "SNP_Name",c(1,k[1]), c(-1,k[2]-k[1]+1))
-      res_part <- data.table(
-        index = as.integer(k[1]:k[2]), 
-        snp = snp_names, 
-        coded = ncvar_get(nc,"Allele1_Reference", k[1], k[2]-k[1]+1), 
-        other = ncvar_get(nc,"Allele2_Reference", k[1], k[2]-k[1]+1),
-        caf = as.numeric(NA), b = as.numeric(NA), se = as.numeric(NA), 
-        p = as.numeric(NA), j = seq_along(k[1]:k[2]))
-      if(model == "glm") res_part[,conv := as.numeric(NA)]
-      
-      #Read dosages at relevant indices, and restrict to participants also in phenotype file
-      p_aa <- ncvar_get(nc,"Prob_AA", start=c(k[1],1), count=c(k[2]-k[1]+1, -1))[,nckeep]
-      p_ab <- ncvar_get(nc,"Prob_AB", start=c(k[1],1), count=c(k[2]-k[1]+1, -1))[,nckeep]
-      dos <- p_aa*2 + p_ab
-      
-      #Add allele frequency, variance and nonomissing N
-      res_part[,c("caf", "v", "n") := list(mean(dos[j,]/2, na.rm = TRUE), 
-                                           var(dos[j,], na.rm = TRUE),
-                                           sum(!is.nan(dos[j,]), na.rm = TRUE)), j]
-      
-      #Add regression results using qfit functions applied to every column of the dosage matrix,
-      #wrapped with the data.table by= operator for speed. qfit_lm and qfit_glm are defined above.
-      if(model == "linear"){ res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se") := qfit_lm(dos[j,]), j]
-      }else res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se","p","conv") := qfit_glm(dos[j,]), j]
-
-      #Return data.table copy to avoid memory leaks
-      copy(res_part)
-    })
-    #For debugging
-    if(!is.data.table(res[[1]])) print(res)
-    warnings()
-=======
   #splitup task into optimized # of chunks with even memory burden
   bits <- splitup(c(1,nsnp), ceiling(100/nworkers)*100)
   res <- mpi.parLapply(bits, function(k) {
@@ -464,7 +392,6 @@ for(i in chr){
       caf = as.numeric(NA), b = as.numeric(NA), se = as.numeric(NA), 
       p = as.numeric(NA), j = seq_along(start:end))
     if(model == "glm") res_part[,conv := as.numeric(NA)]
->>>>>>> 79fae0bca71c7c5646771b5559714c20c529609c
     
     #Read dosages at relevant indices, and restrict to participants also in phenotype file
     p_aa <- ncvar_get(nc,"Prob_AA", start=c(start,1), count=c(span, -1))[,nckeep]

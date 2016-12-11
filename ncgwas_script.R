@@ -227,7 +227,7 @@ for(i in names(opt)) {
 if(!exists("gpath")) gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
 if(!exists("resdir")) resdir <- "ncgwas_results"
 if(!exists("model")) model <- "linear"
-if(!exists("mincaf")) mincaf <- 1E-2
+if(!exists("mincaf")) mincaf <- 0
 if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link")) link <- NULL}
 
 

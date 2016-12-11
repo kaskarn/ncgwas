@@ -156,16 +156,23 @@ library(speedglm)
 
 #Default values not specified here to avoid overriding --source file with default values
 option_list = list(
-  make_option("--source", type = "character", 
-              help = ".R file to source before options are parsed. Allows specifying inputs 
-              in an R scripts rather than, or in addition to the command line. Optional.",
+  make_option("--source", type = "character", help = "
+              [Optional] 
+			  R file to source before options are parsed. Allows specifying inputs 
+              in an R scripts rather than, or in addition to the command line.",
               metavar = "source file"),
-  make_option(c("-p", "--pheno"), type = "character", 
-              help = "Path to phenotype file in csv, tab-delimited or space-delimited format. Required.", metavar = "phenotype file"),
-  make_option(c("-r", "--resdir"), type = "character", 
-              help = "Results directory path. Default is folder \"ncgwas_results\" in working directory", metavar = "results"),
-  make_option(c("-g", "--gpath"), type = "character",
-              help = "Path to NCDF genetic data. Default is /nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/", metavar = "Gene data"),
+  make_option(c("-p", "--pheno"), type = "character", help = "
+              [Required] 
+			  Path to phenotype file. Allowed types:
+			    _ tab-, comma-, space- delimited files,
+			    _ SAS .sasb7dat files,
+			    _ State .dat files", metavar = "phenotype file"),
+  make_option(c("-r", "--resdir"), type = "character", help = "
+              [Optional, default = working directory] 
+			  Path to results directory. Will create new folders along the path if needed", metavar = "results"),
+  make_option(c("-g", "--gpath"), type = "character", help = "
+              [Optional, default = /nas02/deptm i/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/]
+			  Path to genetic data root folder", metavar = "Gene data"),
   make_option(c("-s", "--study"), type = "character", 
               help = "WHI study. Required.", metavar = "study"),	
   make_option(c("-o", "--outcome"), type = "character", 
@@ -190,16 +197,21 @@ option_list = list(
               help = "Stop before running the GWAS, to inspect log for debugging purposes. norun must be specified from the command line",
               metavar = "norun")
 )
+
+
+opt_parser = OptionParser(usage = "%prog  [--pheno file] [--study name] [--outcome name] [--form formula]
+                          [--source file] [--resdir path] [--gpath path] [-m linear | glm] 
+                          [-i varname] [-x number] [-c R-expression] [--norun] [--help]",
+                          option_list=option_list)
+opt = parse_args(opt_parser)
+
+cat("ncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n\n\n")
 cat("\n_____________________________________________________________________\n")
 cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
 cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
 cat("| | | | (_| (_| |\\ V  V / (_| \\__ \\   \\__ \\ (__| |  | | |_) | |_ \n")
 cat("|_| |_|\\___\\__, | \\_/\\_/\\__,_|___/___|___/\\___|_|  |_| .__/ \\__|\n")
 cat("           |___/                 |_____|              |_|        \n")
-
-cat("ncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n\n\n")
-opt_parser = OptionParser(usage = "%prog [options] file", option_list=option_list)
-opt = parse_args(opt_parser)
 
 if(!exists("opt")){
   cat("\nERROR:\tparse_args() returned an error\n\tdue to incorect arguments, see above error message. Check the program usage (--help)\n\n")
@@ -232,7 +244,7 @@ if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link
 
 
 #Check nothing something important is missing
-im <- c("outcome", "pheno")
+im <- c("outcome", "pheno", "form", "study")
 if(sum(is.na(im_mis <- match(im, ls()))) > 0){
   cat("\nError: parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  must be provided\n")
   if(mpi.comm.size() > 1) mpi.close.Rslaves()

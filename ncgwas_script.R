@@ -1,5 +1,11 @@
 #!/usr/bin/env Rscript 
 
+# Please do not change this script without notifying Antoine Baldassari
+# baldassa@email.unc.edu
+
+###################################################################################### 
+#######################        GET .Rprofile if needed         #######################
+###################################################################################### 
 
 # Throw error if Rprofile is missing, offer to install it if needed
 if(!("package:Rmpi" %in% search())){
@@ -7,10 +13,10 @@ if(!("package:Rmpi" %in% search())){
   err <- 0
   rprofpath <- "/nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile"
   cat("\nIncorrect R profile. Make sure the right .Rprofile is in your working directory.")
-  cat("\n The correct file is /nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile")
+  cat("\nThe correct file is /nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile")
   cat("\nand must be renamed to .Rprofile once copied into your working directory.\n\n")
   cat("Install Rprofile in working directory now? [Y/N]\n")
-  doit <- readline()
+  doit <- readLines(con = "stdin", 1)
   if(doit == "Y"){
     if(!file.exists(rprofpath)){
       cat("\nFile was moved from",rprofpath,"\n")
@@ -18,38 +24,28 @@ if(!("package:Rmpi" %in% search())){
     }else if(file.exists(".Rprofile")){
       cat("\nFile named \".Rprofile\" already exists in your working directory")
       cat("\nAre you sure you want to overwrite it? [Y/N]\n")
-      sure <- readline()
+      sure <- readLines(con = "stdin", 1)
       if(sure == "N") err <- 1
     }
     if(err == 0){
-      cat("\nCopying Rprofile to working directory...\n")
+      cat("Copying Rprofile to working directory...\n")
       file.copy(rprofpath, tempdir())
       setwd(tempdir())
       file.rename("Rprofile", ".Rprofile")
       file.copy(".Rprofile", wd)
       file.remove(".Rprofile")
-      setwd()
-      cat("Done.")
+      setwd(wd)
+      cat("Done.\n")
     }
   }else err <- 1
   
   if(err == 1) cat("\nContact antoine baldassa@email.unc.edu if you need assistance\n\n")
-  if(err == 0) cat("\nncgwas_script should work. Try running the script again.")
+  if(err == 0) cat("\nncgwas_script should now work. Try running the script again.\n")
   q()
 }
 
-
-# [[ 4 ]] Check everything looks right by running (in or out of bsub) ./ncgwas_script.R with all your intended arguments
-# followed by --norun. This will provide information on the run without going through the actual computations.
-#
-#
-#
-# [[ 5 ]] run on the LSF platform, with mpirun: for example:
-# 
-# ex: bsub -n 30 -M 6 -o "test.txt" mpirun ./ncgwas_script.R --source inputs.R -m glm --glmfam Gamma --link log
-
 ###################################################################################### 
-############################     START OF SCRIPT      ################################
+############################         LIBRARIES         ###############################
 ###################################################################################### 
 
 
@@ -119,7 +115,7 @@ opt_parser = OptionParser(usage = "%prog  [--pheno file] [--study name] [--outco
                           option_list=option_list)
 opt = parse_args(opt_parser)
 
-cat("\n\nncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n")
+cat("\n\nncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request features\n")
 cat("\n_____________________________________________________________________\n")
 cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
 cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
@@ -146,7 +142,7 @@ for(i in option_list) {
 cat("\nCommand line arguments:\n")
 for(i in names(opt)) {
   cat("\t", i,":",opt[[i]])
-  if(exists(i) && !is.function(get(i))) cat(" ( OVERRIDES",basename(opt$source),")")
+  if(exists(i) && !is.function(get(i))) cat("  (OVERRIDES",basename(opt$source),")",sep = "")
   cat("\n")
   assign(i, opt[[i]])
 }
@@ -170,9 +166,6 @@ if(sum(is.na(im_mis <- match(im, ls()))) > 0){
   mpi.quit()
 }
 
-#Turn formula and chromosome inputs into right formats
-if(is.character(form)) form <- as.formula(form)
-if(is.character(chr)) chr <- eval(parse(text = chr))
 
 #####################################################################################
 #############################    End of parsing step  ###############################
@@ -184,6 +177,10 @@ if(is.character(chr)) chr <- eval(parse(text = chr))
 
 #Create directory/ies for results
 dir.create(resdir,showWarnings = FALSE, recursive = TRUE)
+
+#Turn formula and chromosome inputs into right formats
+if(is.character(form)) form <- as.formula(form)
+if(is.character(chr)) chr <- eval(parse(text = chr))
 
 #Load and pare down data
 pext <- strsplit(pheno, "\\.")[[1]][2]
@@ -326,11 +323,11 @@ cat("\nStarting main loop at:",format(Sys.time(),"%H:%M:%S"))
 for(i in chr){
   #misc: get #snps, make output file name, send chromosome # to workers...
   mpi.bcast.Robj2slave(i)
-  rname <- paste0(resdir,"Chr",i,"_",outcome,"_",study,"_results.csv")
+  rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
   nsnp <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))$dim$SNPs$len
   
   #splitup task into optimized # of chunks with even memory burden
-  bits <- splitup(c(1,nsnp), ceiling(100/nworkers)*100)
+  bits <- splitup(c(1,nsnp), ceiling(100/nworkers)*nworkers)
   res <- mpi.parLapply(bits, function(k) {
     start <- k[1]; end <- k[2]; span <- k[2]-k[1]+1
     #Open nc file, get SNP names and create results dataset
@@ -361,6 +358,7 @@ for(i in chr){
     }else res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se","p","conv") := qfit_glm(dos[j,]), j]
     
     #Return data.table copy to avoid memory leaks
+    rm(p_aa, p_ab, dos);gc()
     copy(res_part)
   })
   #For debugging

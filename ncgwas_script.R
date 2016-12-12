@@ -1,131 +1,44 @@
 #!/usr/bin/env Rscript 
 
 
-##################################################################################### 
-              # Report bugs and issues to baldassa@email.unc.edu # 
-##################################################################################### 
+# Throw error if Rprofile is missing, offer to install it if needed
+if(!("package:Rmpi" %in% search())){
+  wd <- getwd()
+  err <- 0
+  rprofpath <- "/nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile"
+  cat("\nIncorrect R profile. Make sure the right .Rprofile is in your working directory.")
+  cat("\n The correct file is /nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile")
+  cat("\nand must be renamed to .Rprofile once copied into your working directory.\n\n")
+  cat("Install Rprofile in working directory now? [Y/N]\n")
+  doit <- readline()
+  if(doit == "Y"){
+    if(!file.exists(rprofpath)){
+      cat("\nFile was moved from",rprofpath,"\n")
+      err <- 1
+    }else if(file.exists(".Rprofile")){
+      cat("\nFile named \".Rprofile\" already exists in your working directory")
+      cat("\nAre you sure you want to overwrite it? [Y/N]\n")
+      sure <- readline()
+      if(sure == "N") err <- 1
+    }
+    if(err == 0){
+      cat("\nCopying Rprofile to working directory...\n")
+      file.copy(rprofpath, tempdir())
+      setwd(tempdir())
+      file.rename("Rprofile", ".Rprofile")
+      file.copy(".Rprofile", wd)
+      file.remove(".Rprofile")
+      setwd()
+      cat("Done.")
+    }
+  }else err <- 1
+  
+  if(err == 1) cat("\nContact antoine baldassa@email.unc.edu if you need assistance\n\n")
+  if(err == 0) cat("\nncgwas_script should work. Try running the script again.")
+  q()
+}
 
-##################################################################################### 
-#############################    DESCRIPTION     ####################################
-#####################################################################################
-#
-# Runs GWAS on NCDF4-formatted genotype dosage files. Written with WHI analyses in mind, 
-# although this should work with any data so long as it is in NCDF4 format.
-# outputs have the following columns for each SNP:
-#   index -- order of appearance of SNPs in file
-#   snp -- snp name
-#   coded -- coded allele
-#   other -- referent allele
-#   caf -- allele frequency
-#   v -- dosage variance
-#   n -- nonmissing observations for SNP
-#   b -- SNP beta
-#   se -- standard error on b
-#   p -- p-value
-#   conv (GLM only) -- 1/0 indicator of model convergence
 
-##################################################################################### 
-#############################       USAGE        ####################################
-#####################################################################################
-#
-#   --source=SOURCE FILE
-#   R file to source before options are parsed. Allows specifying inputs 
-#   in an R scripts rather than, or in addition to the command line. Optional.
-#   
-#   -p PHENOTYPE FILE, --pheno=PHENOTYPE FILE
-#   Path to phenotype file in csv, tab-delimited or space-delimited format. Required.
-#   
-#   -r RESULTS, --resdir=RESULTS
-#   Results directory path. Default is folder "ncgwas_results" in working directory
-#   
-#   -g GENE DATA, --gpath=GENE DATA
-#   Path to NCDF genetic data. Default is /nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/
-#     
-#     -s STUDY, --study=STUDY
-#   WHI study. Required.
-#   
-#   -o OUTCOME, --outcome=OUTCOME
-#   Outcome variable to be used in models. Required.
-#   
-#   -f FORMULA, --form=FORMULA
-#   Right-hand side of the model, starting with ~ in R-style. Required.
-#   
-#   -m MODEL, --model=MODEL
-#   Model type: linear or GLM. Default is linear.
-#   
-#   --glmfam=GLM FAMILY
-#   For GLMs: Distribution family of outcome (binomial, Gamma, gaussian,...) see ?family. 
-#   Default is binomial if model is set to "glm"
-#   
-#   --link=GLM LINK
-#   For GLMs: Link function. Default is NULL if model is set to "glm"
-#   
-#   -i ID VARIABLE, --idvar=ID VARIABLE
-#   Name of ID variable in phenotype file. Default is leftmost variable in phenotype file
-#   
-#   -x MIN CAF, --mincaf=MIN CAF
-#   Minimum allele frequency required for inclusion. Default is 0.01
-#   
-#   -c CHROMOSOME(S), --chr=CHROMOSOME(S)
-#   Chromosomes to run the GWAS on, specified as an expression for an R vector, e.g. 1:22, c(1,3,22)
-#   
-#   --norun=NORUN
-#   Stop before running the GWAS, to inspect log for debugging purposes
-#   
-#   -h, --help
-#   Show this help message and exit
-#   
-#   
-#
-##################################################################################### 
-#############################    INSTRUCTIONS    ####################################
-##################################################################################### 
-#
-# [[ 0 ]] Install the development version of data.table from github, using
-# devtool::install_github("Rdatatable/data.table", build_vignettes=FALSE)
-#
-#
-#
-# [[ 1 ]] Copy the file /nas02/apps/r-3.3.1/lib64/R/OFED-1.5.2/library/Rmpi/Rprofile into your
-# working directory; rename it to ".Rprofile". This will ensure that R is launched with
-# the proper MPI-enabled profile from the script's directory. If the file is somehow lost,
-# it may also be downloaded from https://web.stanford.edu/group/farmshare/cgi-bin/wiki/index.php/Rmpi
-#
-#
-#
-# [[ 2 ]] Place this script file in your working directory. Make sure to have the latest version -- updates
-# are pushed to https://github.com/kaskarn/ncgwas. 
-#
-#
-#
-# [[ 3 ]] Set input arguments (quotes are not needed, e.g. -o jt and -o "jt" will have the same effect) 
-# 
-## Inputs can be set by sourcing an R file with the --source options, by listing them individually, or 
-# by a combination of these two ways. When an argument is provided both in the command line and in a 
-# sourced file, the command line value prevails. This allows to quickly run models changing only a few 
-# arguments at a time. An example input source file follows: 
-#
-# example_inputs.R: (Quotes are now necessary to designate character variables since this is sourced by R)
-#
-#   phenodir  <- "/nas02/depts/epi/CVDGeneNas/antoine/ECG_GWAS/WHI/phenotypes/"
-#   pheno     <- paste0(phenodir,"ecg_whi_whites_fi.txt")
-#   resdir    <- "/proj/epi/CVDGeneNas/antoine/dev_garnetmpi/test_results/"
-#   gpath     <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
-#   study     <- "GARNET"
-#   outcome   <- "qt" 
-#   form      <- "~g+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10+region+rr_d+age"
-#   chr       <-  22
-#   idvar     <- "id"
-#
-# end example_inputs.R
-#
-# Since the unspecified parameters have default values (see usage), this will run fine by calling
-# ./ncgwas_script.R --source inputs.R.  This is useful to run different models of a base sourced file,
-# only overriding a few arguments at the time in the command line, e.g. changing the outcome with -o new_outcome, 
-# or the model with -m glm without needing to write a new inputs.R source file
-#
-#
-#
 # [[ 4 ]] Check everything looks right by running (in or out of bsub) ./ncgwas_script.R with all your intended arguments
 # followed by --norun. This will provide information on the run without going through the actual computations.
 #
@@ -139,11 +52,11 @@
 ############################     START OF SCRIPT      ################################
 ###################################################################################### 
 
+
 #Load libraries
 library(Rcpp)
 library(MASS)
 library(Matrix)
-library(Rmpi)
 library(optparse)
 library(data.table)
 library(ncdf4)
@@ -157,55 +70,56 @@ library(speedglm)
 #Default values not specified here to avoid overriding --source file with default values
 option_list = list(
   make_option("--source", type = "character", help = "
-              [Optional] 
-			  R file to source before options are parsed. Allows specifying inputs 
-              in an R scripts rather than, or in addition to the command line.",
-              metavar = "source file"),
-  make_option(c("-p", "--pheno"), type = "character", help = "
-              [Required] 
-			  Path to phenotype file. Allowed types:
-			    _ tab-, comma-, space- delimited files,
-			    _ SAS .sasb7dat files,
-			    _ State .dat files", metavar = "phenotype file"),
-  make_option(c("-r", "--resdir"), type = "character", help = "
-              [Optional, default = working directory] 
-			  Path to results directory. Will create new folders along the path if needed", metavar = "results"),
-  make_option(c("-g", "--gpath"), type = "character", help = "
-              [Optional, default = /nas02/deptm i/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/]
-			  Path to genetic data root folder", metavar = "Gene data"),
-  make_option(c("-s", "--study"), type = "character", 
-              help = "WHI study. Required.", metavar = "study"),	
-  make_option(c("-o", "--outcome"), type = "character", 
-              help = "Outcome variable to be used in models. Required.", metavar = "Outcome"),	
-  make_option(c("-f", "--form"), type = "character", 
-              help = "Right-hand side of the model, starting with ~ in R-style. Required.", metavar = "Formula"),	
-  make_option(c("-m", "--model"), type = "character",
-              help = "Model type: linear or GLM. Default is linear.", metavar = "Model"),
-  make_option("--glmfam", type = "character",
-              help = "For GLMs: Distribution family of outcome (binomial, Gamma, gaussian,...) see ?family. 
-              Default is binomial if model is set to \"glm\"", metavar = "GLM Family"),
-  make_option("--link", type = "character",
-              help = "For GLMs: Link function. Default is NULL if model is set to \"glm\"", metavar = "GLM Link"),
-  make_option(c("-i", "--idvar"), type = "character",
-              help = "Name of ID variable in phenotype file. Default is leftmost variable in phenotype file", metavar = "ID VARIABLE"),
-  make_option(c("-x", "--mincaf"), type = "double",
-              help = "Minimum allele frequency required for inclusion. Default is 0 (keep all)", metavar = c("MIN CAF")),
-  make_option(c("-c", "--chr"), type = "character",
-              help = "Chromosomes to run the GWAS on, specified as an expression for an R vector, e.g. 1:22, c(1,3,22)",
-              metavar = "chromosome(s)"),
-  make_option(c("--norun"), type = "logical", action = "store_true", default = "FALSE",
-              help = "Stop before running the GWAS, to inspect log for debugging purposes. norun must be specified from the command line",
-              metavar = "norun")
+		R file to source before options are parsed. Allows specifying inputs
+		in an R scripts rather than, or in addition to the command line.",
+              metavar = "file"),
+  make_option(c("--pheno"), type = "character", help = "[Required]
+		Path to phenotype file. Allowed types:
+		  a. tab-, comma-, space- delimited files, with missing data marked as NA
+		  b. SAS .sasb7dat files,
+		  c. Stata .dat files", metavar = "file"),
+  make_option(c("-s", "--study"), type = "character", help = "[Required]	
+		WHI study; case-sensitive.", metavar = "study"),	
+  make_option(c("-o", "--outcome"), type = "character",help = "[Required]	
+		Outcome variable.", metavar = "varname"),			  
+  make_option(c("-f", "--form"), type = "character", help = "[Required]	
+		Right-hand side of the model written in R-formula style, starting as: ~ g + ... ", metavar = "Formula"),
+  make_option(c("-m", "--model"), type = "character", help = "[Default: linear]	
+		Model type: either linear or glm.", metavar = "model"),		
+  make_option("--glmfam", type = "character",help = "[GLM option. Default: binomial]		
+		For GLMs: Distribution family of outcome
+		For a list of possible families and their default link function, see ?family (in R). ", metavar = "GLM family"),
+  make_option("--glmlink", type = "character",help = "[GLM option. Default: R default for family]		
+		For GLMs: Link function.", metavar = "GLM Link"),
+  make_option(c("-r", "--resdir"), type = "character", help = "[Default: working directory]
+		Path to results directory. Will create new folders along the path if needed.", metavar = "PATH"),
+  make_option(c("-g", "--gpath"), type = "character", 
+    help = "[Default: /nas02/deptm i/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/]	
+		Path to genetic data root folder.", metavar = "PATH"),
+  make_option(c("-i", "--idvar"), type = "character",help = "[Default: name of first column in phenotype file]		
+		Name of ID variable in phenotype file.", metavar = "varname"),
+  make_option(c("-x", "--mincaf"), type = "double",help = "[Default: 0]		
+		Minimum minor allele frequency cutoff for inclusion. Should be between 0 and 1", metavar = "NUM"),
+  make_option(c("-c", "--chr"), type = "character",help = "[Default: 1:22]		
+		Chromosomes to run the GWAS on, specified as an expression for an R vector
+		e.g. 1:22, c(1,3,22)", metavar = "chromosome(s)"),
+  make_option("--mergeout", type = "logical", action = "store_true", 
+    help = "Write all output to a single file"),
+  make_option(c("--norun"), type = "logical", action = "store_true", default = FALSE,
+    help = "Stop after printing out summary of model. Useful for checking all arguments are as 
+		intended before running the GWAS. 
+
+		Important: --norun must be specified from the command line, and not from a sourced .R file")
 )
 
 
 opt_parser = OptionParser(usage = "%prog  [--pheno file] [--study name] [--outcome name] [--form formula]
-                          [--source file] [--resdir path] [--gpath path] [-m linear | glm] 
-                          [-i varname] [-x number] [-c R-expression] [--norun] [--help]",
+                          [--source file] [--resdir path] [--gpath path] [--model linear | glm] 
+                          [--idvar varname] [--mincaf number] [--chr R-expression] [--norun] [--help]",
                           option_list=option_list)
 opt = parse_args(opt_parser)
 
-cat("ncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n\n\n")
+cat("\n\nncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request feature\n")
 cat("\n_____________________________________________________________________\n")
 cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
 cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
@@ -228,28 +142,37 @@ for(i in option_list) {
   if(exists(i@dest) && !is.function(get(i@dest))) cat("\t", i@dest,":",get(i@dest),"\n")
 }
 
+#Then those defined in the command line
 cat("\nCommand line arguments:\n")
 for(i in names(opt)) {
   cat("\t", i,":",opt[[i]])
-  if(exists(i) && !is.function(get(i))) cat(" (OVERRIDEN)")
+  if(exists(i) && !is.function(get(i))) cat(" ( OVERRIDES",basename(opt$source),")")
   cat("\n")
   assign(i, opt[[i]])
 }
-#Sets default if not specified in command line or --source file
-if(!exists("gpath")) gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/"
-if(!exists("resdir")) resdir <- "ncgwas_results"
-if(!exists("model")) model <- "linear"
-if(!exists("mincaf")) mincaf <- 0
-if(model == "glm") {if(!exists("glmfam")) glmfam <- "binomial"; if(!exists("link")) link <- NULL}
 
-
+#Sets default if not specified in command line or --source file, and log them
+cat("\nDefault arguments used:\n")
+if(!exists("gpath")){ path <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/";cat("\t gpath",gpath,"\n")}
+if(!exists("resdir")){resdir <- "ncgwas_results";cat("\t resdir",resdir,"\n")}
+if(!exists("model")){model <- "linear"; cat("\t model",model,"\n")}
+if(!exists("mincaf")) {mincaf <- 0; cat("\t mincaf:",mincaf,"\n")}
+if(model == "glm") {
+  if(!exists("glmfam")) {glmfam <- "binomial"; cat("\t glmfam:",glmfam,"\n")}
+  if(!exists("glmlink")) {glmlink <- NULL ;cat("\t glmlink:",get(glmfam)()$link,"\n")}
+}
+if(!exists("mergeout")) {mergeout <- FALSE; cat("\t mergeout: FALSE\n")}
 #Check nothing something important is missing
 im <- c("outcome", "pheno", "form", "study")
 if(sum(is.na(im_mis <- match(im, ls()))) > 0){
-  cat("\nError: parameter(s): ", paste(im[is.na(im_mis)], collapse = ", "), "  must be provided\n")
+  cat("\nError: missing arguments: ", paste(im[is.na(im_mis)], collapse = ", "), "\n")
   if(mpi.comm.size() > 1) mpi.close.Rslaves()
   mpi.quit()
 }
+
+#Turn formula and chromosome inputs into right formats
+if(is.character(form)) form <- as.formula(form)
+if(is.character(chr)) chr <- eval(parse(text = chr))
 
 #####################################################################################
 #############################    End of parsing step  ###############################
@@ -259,17 +182,26 @@ if(sum(is.na(im_mis <- match(im, ls()))) > 0){
 #################################   Setup step   ####################################
 #####################################################################################
 
-#Turn formula input into formula object
-form <- as.formula(form)
-
 #Create directory/ies for results
 dir.create(resdir,showWarnings = FALSE, recursive = TRUE)
 
 #Load and pare down data
-Epidata <- fread(pheno)
+pext <- strsplit(pheno, "\\.")[[1]][2]
+if(pext == "sas7bdat"){ 
+  require(sas7bdat)
+  Epidata <- as.data.table(read.sas7bdat(phen))
+}else if(pext == "dat") {
+  require(readstata13)
+  Epidata <- as.data.table(read.dta13(phen))
+}else Epidata <- fread(pheno)
+
+#Set idvar to first column by default
 if(!exists("idvar")) idvar <- names(Epidata)[1]
+#Create dummy g variable
 invisible(Epidata[,g:=rnorm(nrow(Epidata))])
+#Only keep variables in formula, with full data
 Epidata <- na.omit(Epidata[,c(idvar, outcome, all.vars(form)), with = F])
+#Rename ID to "Common_ID" if not already the case, and sort by it.
 if(idvar != "Common_ID") setnames(Epidata, idvar, "Common_ID")
 setkey(Epidata, Common_ID)
 
@@ -308,7 +240,7 @@ qfit_glm <- function(gnow){
   ind <- which(!is.na(gnow))
   X[,gpos] <- gnow
   tm <- try(speedglm.wfit(y[ind],X[ind,],FALSE, 
-                          family=do.call(glmfam,as.list(link)),
+                          family=do.call(glmfam,as.list(glmlink)),
                           set.default=list(row.chunk=2000)), TRUE)
   if(class(tm) == "try-error") return(as.list(as.numeric(c(NA,NA,NA,0))))
   c(as.list(as.numeric(as.matrix(summary(tm)$coefficients[gpos,-3]))),1)
@@ -320,13 +252,13 @@ if(model == "linear"){
 }else if(model == "glm") {
   cat("\nWill fit Generalized Linear Models:\n")
   cat("\t Family:",glmfam,"\n")
-  cat("\t Link:",link,"\n")
+  cat("\t Link:",get(glmfam)()$link,"\n")
 }
 cat("\t Formula:", paste(form), "\n")
-cat("\nDetails:\n")
+cat("\nRun details:\n")
 cat("\t Chromosomes:", chr,"\n")
-cat("\t Phenotype file N in NC files:", nrow(dt_ana),"\n")
-cat("\t # of workers:", nworkers,"\n")
+cat("\t # Observations in both phenotype and genotype files:", nrow(dt_ana),"\n")
+if(norun == FALSE) cat("\t # of workers:", nworkers,"\n")
 #fmem <- lapply(strsplit(system("free -m", intern = T), " "), function(i) i[i != ""])[[3]][4]
 
 ##### Error catching ####
@@ -341,6 +273,14 @@ if(!(model %in% c("linear", "glm"))){
   if(mpi.comm.size() > 1) mpi.close.Rslaves()
   mpi.quit()
 }
+
+if(norun == TRUE){
+  cat("\n\nLooks good! Suggested command to run in LSF is:")
+  cat("\n\tbsub -n 25 -M 9 mpirun ./ncgwas_script [your options] \n\n")
+  if(mpi.comm.size() > 1) mpi.close.Rslaves()
+  mpi.quit()  
+}
+
 #Check MPI correctly setup
 if(mpi.comm.size() <= 1){
   cat("\nERROR: too few MPI workers; did you call the script with mpirun, and the -n bsub option?\n\n")
@@ -382,9 +322,9 @@ mpi.bcast.cmd({
 #####################################################################################
 
 #Start loop over chromosomes
+cat("\nStarting main loop at:",format(Sys.time(),"%H:%M:%S"))
 for(i in chr){
   #misc: get #snps, make output file name, send chromosome # to workers...
-  print(paste("Starting on chromosome",i,"at:",Sys.time()))
   mpi.bcast.Robj2slave(i)
   rname <- paste0(resdir,"Chr",i,"_",outcome,"_",study,"_results.csv")
   nsnp <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))$dim$SNPs$len
@@ -439,9 +379,9 @@ for(i in chr){
   
   #Write to file
   fwrite(res, rname, sep = ",")
-  print(paste("Done with chromosome:",i,"at:",Sys.time()))
-  print(paste("Size of chunked outputs: ", format(object.size(res), units = "MB")))
+  cat("\nDone with chromosome:",i,"at:",format(Sys.time(),"%H:%M:%S"),
+      ". Size of output: ", format(object.size(res), units = "MB"))
 }
-
-mpi.close.Rslaves()
-mpi.quit()
+cat("\n\nAll done. Results may be found in ",resdir,"\n\n")
+invisible(mpi.close.Rslaves())
+invisible(mpi.quit())

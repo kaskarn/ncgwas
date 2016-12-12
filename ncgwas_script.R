@@ -45,9 +45,8 @@ if(!("package:Rmpi" %in% search())){
 }
 
 ###################################################################################### 
-############################         LIBRARIES         ###############################
+############################        LIBRARIES         ################################
 ###################################################################################### 
-
 
 #Load libraries
 library(Rcpp)
@@ -60,7 +59,7 @@ library(RcppEigen)
 library(speedglm)
 
 #####################################################################################
-################################## Parsing step  ####################################
+##############################     Parsing step      ################################
 #####################################################################################
 
 #Default values not specified here to avoid overriding --source file with default values
@@ -108,7 +107,6 @@ option_list = list(
 		Important: --norun must be specified from the command line, and not from a sourced .R file")
 )
 
-
 opt_parser = OptionParser(usage = "%prog  [--pheno file] [--study name] [--outcome name] [--form formula]
                           [--source file] [--resdir path] [--gpath path] [--model linear | glm] 
                           [--idvar varname] [--mincaf number] [--chr R-expression] [--norun] [--help]",
@@ -142,14 +140,14 @@ for(i in option_list) {
 cat("\nCommand line arguments:\n")
 for(i in names(opt)) {
   cat("\t", i,":",opt[[i]])
-  if(exists(i) && !is.function(get(i))) cat("  (OVERRIDES",basename(opt$source),")",sep = "")
+  if(exists(i) && !is.function(get(i))) cat("  (OVERRIDES ",basename(opt$source),")",sep = "")
   cat("\n")
   assign(i, opt[[i]])
 }
 
 #Sets default if not specified in command line or --source file, and log them
 cat("\nDefault arguments used:\n")
-if(!exists("gpath")){ path <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/";cat("\t gpath",gpath,"\n")}
+if(!exists("gpath")){gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/";cat("\t gpath",gpath,"\n")}
 if(!exists("resdir")){resdir <- "ncgwas_results";cat("\t resdir",resdir,"\n")}
 if(!exists("model")){model <- "linear"; cat("\t model",model,"\n")}
 if(!exists("mincaf")) {mincaf <- 0; cat("\t mincaf:",mincaf,"\n")}
@@ -158,19 +156,40 @@ if(model == "glm") {
   if(!exists("glmlink")) {glmlink <- NULL ;cat("\t glmlink:",get(glmfam)()$link,"\n")}
 }
 if(!exists("mergeout")) {mergeout <- FALSE; cat("\t mergeout: FALSE\n")}
+
+err <- 0
 #Check nothing something important is missing
 im <- c("outcome", "pheno", "form", "study")
 if(sum(is.na(im_mis <- match(im, ls()))) > 0){
-  cat("\nError: missing arguments: ", paste(im[is.na(im_mis)], collapse = ", "), "\n")
-  if(mpi.comm.size() > 1) mpi.close.Rslaves()
-  mpi.quit()
+  cat("\nERROR: missing arguments: ", paste(im[is.na(im_mis)], collapse = ", "), "\n")
+  err <- 1
 }
-
-
-#####################################################################################
-#############################    End of parsing step  ###############################
-#####################################################################################
-
+#Check phenotype file exists
+if(!file.exists(pheno)){
+  cat("\nERROR: Phenotype file does not exist")
+  err <- 1;
+}
+#Check gene folder exists and contains study
+if(dir.exists(gpath)){
+  if(length(grep(study,list.files(gpath))) == 0){
+    cat("\nERROR: study not found in gene data.")
+    err <- 1
+  }
+}else{
+  cat("\nERROR: Gene directory does not exist")
+  err <- 1;
+}
+#Check model is linear or glm
+if(!(model %in% c("linear", "glm"))){
+  cat("\nERROR: model must be either linear, or glm.");
+  err <- 1
+}
+#Quit if any error so far
+if(err > 0){
+  cat("\n\nExiting due to errors\n")
+  if(mpi.comm.size() > 1) mpi.close.Rslaves()
+  mpi.quit()  
+}
 #####################################################################################
 #################################   Setup step   ####################################
 #####################################################################################
@@ -243,7 +262,10 @@ qfit_glm <- function(gnow){
   c(as.list(as.numeric(as.matrix(summary(tm)$coefficients[gpos,-3]))),1)
 }
 
-##### Print details of analyses to logfile #####
+#####################################################################################
+##############################     Print  Details      ##############################
+#####################################################################################
+
 if(model == "linear"){
   cat("\nWill fit Linear models:\n")
 }else if(model == "glm") {
@@ -256,19 +278,12 @@ cat("\nRun details:\n")
 cat("\t Chromosomes:", chr,"\n")
 cat("\t # Observations in both phenotype and genotype files:", nrow(dt_ana),"\n")
 if(norun == FALSE) cat("\t # of workers:", nworkers,"\n")
-#fmem <- lapply(strsplit(system("free -m", intern = T), " "), function(i) i[i != ""])[[3]][4]
 
-##### Error catching ####
+#Sanity check
 if(nrow(dt_ana) < 10){
   cat("\nERROR: Only",nrow(dt_ana),"IDs found. Wrong ID variable specified, or wrong study IDs used.\n")
   if(mpi.comm.size() > 1) mpi.close.Rslaves()
-  mpi.quit()
-}
-#Check model is linear or glm
-if(!(model %in% c("linear", "glm"))){
-  cat("\nERROR: model must be either linear, or glm.\n")
-  if(mpi.comm.size() > 1) mpi.close.Rslaves()
-  mpi.quit()
+  mpi.quit()  
 }
 
 if(norun == TRUE){
@@ -286,16 +301,9 @@ if(mpi.comm.size() <= 1){
 
 cat("\n\nALL LOOK OK\n\n")
 
-###Stop here if debugging only ###
-if(norun == TRUE){
-  if(mpi.comm.size() > 1) mpi.close.Rslaves()
-  mpi.quit()
-}
-
-#Split convenience function
-splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
-
-#### MPI Setup ####
+#####################################################################################
+##############################        MPI SETUP        ##############################
+#####################################################################################
 
 #Send ALL objects (because why not), and the needed libraries to worker threads
 mpi.bcast.Robj2slave(all = TRUE) 
@@ -306,27 +314,26 @@ mpi.bcast.cmd({
   library(speedglm); library(ncdf4)
 })
 
-
-
-#Data for debugging
-
 #####################################################################################
-############################    End of setup step    ################################
+#############################      RUN THE GWAS      ################################
 #####################################################################################
 
-#####################################################################################
-#################################   LET'S ROLL   ####################################
-#####################################################################################
+#Split convenience function
+splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
+if(mergeout == TRUE){
+  if(chr == 1:22){ rname <- paste0(resdir,"/allchr_",outcome,"_",study,"_results.csv")
+  }else rname <- paste0(resdir,"/partial_",outcome,"_",study,"_results.csv")
+}
 
 #Start loop over chromosomes
 cat("\nStarting main loop at:",format(Sys.time(),"%H:%M:%S"))
 for(i in chr){
   #misc: get #snps, make output file name, send chromosome # to workers...
   mpi.bcast.Robj2slave(i)
-  rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
+  if(!mergeout) rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
   nsnp <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))$dim$SNPs$len
   
-  #splitup task into optimized # of chunks with even memory burden
+  #splitup task into optimized # of chunks
   bits <- splitup(c(1,nsnp), ceiling(100/nworkers)*nworkers)
   res <- mpi.parLapply(bits, function(k) {
     start <- k[1]; end <- k[2]; span <- k[2]-k[1]+1
@@ -354,7 +361,8 @@ for(i in chr){
     
     #Add regression results using qfit functions applied to every column of the dosage matrix,
     #wrapped with the data.table by= operator for speed. qfit_lm and qfit_glm are defined above.
-    if(model == "linear"){ res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se") := qfit_lm(dos[j,]), j]
+    if(model == "linear"){ 
+      res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se") := qfit_lm(dos[j,]), j]
     }else res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se","p","conv") := qfit_glm(dos[j,]), j]
     
     #Return data.table copy to avoid memory leaks
@@ -376,9 +384,10 @@ for(i in chr){
   res[,j := NULL]
   
   #Write to file
-  fwrite(res, rname, sep = ",")
+  if(!mergeout || i == 1){ fwrite(res, rname, sep = ",")
+  }else fwrite(res, rname, sep = ",", append = TRUE)
   cat("\nDone with chromosome:",i,"at:",format(Sys.time(),"%H:%M:%S"),
-      ". Size of output: ", format(object.size(res), units = "MB"))
+      ". Size of output: ", format(object.size(res), units = "MB"),"\n")
 }
 cat("\n\nAll done. Results may be found in ",resdir,"\n\n")
 invisible(mpi.close.Rslaves())

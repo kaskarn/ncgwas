@@ -90,7 +90,7 @@ option_list = list(
 		Path to results directory. Will create new folders along the path if needed.", metavar = "PATH"),
   make_option(c("-g", "--gpath"), type = "character", 
     help = "[Default: /nas02/deptm i/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/]	
-		Path to genetic data root folder.", metavar = "PATH"),
+		Gene data directory", metavar = "PATH"),
   make_option(c("-i", "--idvar"), type = "character",help = "[Default: name of first column in phenotype file]		
 		Name of ID variable in phenotype file.", metavar = "varname"),
   make_option(c("-x", "--mincaf"), type = "double",help = "[Default: 0]		
@@ -98,8 +98,13 @@ option_list = list(
   make_option(c("-c", "--chr"), type = "character",help = "[Default: 1:22]		
 		Chromosomes to run the GWAS on, specified as an expression for an R vector
 		e.g. 1:22, c(1,3,22)", metavar = "chromosome(s)"),
-  make_option("--mergeout", type = "logical", action = "store_true", 
-    help = "Write all output to a single file"),
+  make_option(c("-a", "--annodir"), type = "character", 
+    help = "[Default: /nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/snp-summary-files/]	
+		Annotation data directory", metavar = "PATH"),
+  make_option("--nomerge", type = "logical", action = "store_true", 
+    help = "Separate output by chromosome"),
+  make_option("--noanno", type = "logical", action = "store_true",
+    help = "Don't merge with annotation file"),
   make_option(c("--norun"), type = "logical", action = "store_true", default = FALSE,
     help = "Stop after printing out summary of model. Useful for checking all arguments are as 
 		intended before running the GWAS. 
@@ -113,13 +118,13 @@ opt_parser = OptionParser(usage = "%prog  [--pheno file] [--study name] [--outco
                           option_list=option_list)
 opt = parse_args(opt_parser)
 
-cat("\n\nncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request features\n")
-cat("\n_____________________________________________________________________\n")
-cat("_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
+cat("\n\n_ __   ___ __ ___      ____ _ ___     ___  ___ _ __(_)_ __ | |_ \n")
 cat("| '_ \\ / __/ _` \\ \\ /\\ / / _` / __|   / __|/ __| '__| | '_ \\| __|\n")
 cat("| | | | (_| (_| |\\ V  V / (_| \\__ \\   \\__ \\ (__| |  | | |_) | |_ \n")
 cat("|_| |_|\\___\\__, | \\_/\\_/\\__,_|___/___|___/\\___|_|  |_| .__/ \\__|\n")
 cat("           |___/                 |_____|              |_|        \n")
+cat("\n_____________________________________________________________________\n")
+cat("\nncgwas_script.R\ncontact baldassa@email.unc.edu to complain about bugs or request features\n")
 
 if(!exists("opt")){
   cat("\nERROR:\tparse_args() returned an error\n\tdue to incorect arguments, see above error message. Check the program usage (--help)\n\n")
@@ -140,35 +145,40 @@ for(i in option_list) {
 cat("\nCommand line arguments:\n")
 for(i in names(opt)) {
   cat("\t", i,":",opt[[i]])
-  if(exists(i) && !is.function(get(i))) cat("  (OVERRIDES ",basename(opt$source),")",sep = "")
+  if(exists(i) && !is.function(get(i))) cat("  (OVERRIDES variable in ",basename(opt$source),")",sep = "")
   cat("\n")
   assign(i, opt[[i]])
 }
 
-#Sets default if not specified in command line or --source file, and log them
-cat("\nDefault arguments used:\n")
-if(!exists("gpath")){gpath <- "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/";cat("\t gpath",gpath,"\n")}
-if(!exists("resdir")){resdir <- "ncgwas_results";cat("\t resdir",resdir,"\n")}
-if(!exists("model")){model <- "linear"; cat("\t model",model,"\n")}
-if(!exists("mincaf")) {mincaf <- 0; cat("\t mincaf:",mincaf,"\n")}
-if(model == "glm") {
-  if(!exists("glmfam")) {glmfam <- "binomial"; cat("\t glmfam:",glmfam,"\n")}
-  if(!exists("glmlink")) {glmlink <- NULL ;cat("\t glmlink:",get(glmfam)()$link,"\n")}
-}
-if(!exists("mergeout")) {mergeout <- FALSE; cat("\t mergeout: FALSE\n")}
-
-err <- 0
 #Check nothing something important is missing
 im <- c("outcome", "pheno", "form", "study")
-if(sum(is.na(im_mis <- match(im, ls()))) > 0){
-  cat("\nERROR: missing arguments: ", paste(im[is.na(im_mis)], collapse = ", "), "\n")
-  err <- 1
+if(sum(im_mis <- !sapply(im, exists)) != 0){
+  cat("\nERROR: missing arguments: ", paste(im[im_mis], collapse = ", "), "\n")
+  if(mpi.comm.size() > 1) mpi.close.Rslaves()
+  mpi.quit()
 }
+
+#Sets default if not specified in command line or --source file, and log them
+cat("\nDefault arguments used:\n")
+def <- list(
+  resdir = "ncgwas_results", model = "linear",
+  gpath = "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/",
+  nomerge = FALSE, noanno = FALSE, 
+  annodir = "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/snp-summary-files/",
+  glmfam = "binomial", glmlink = substitute(get(glmfam)()$link), mincaf = 0
+)
+if(exists("model") & model != "glm") def$glmfam <- def$glmlink <- NULL
+for(i in sort(names(def))) {
+  if(!exists(i)) {assign(i, eval(def[[i]])) ; cat("\t ",i,": ",get(i),"\n",sep="")}
+}
+
+err <- 0
 #Check phenotype file exists
 if(!file.exists(pheno)){
   cat("\nERROR: Phenotype file does not exist")
   err <- 1;
 }
+
 #Check gene folder exists and contains study
 if(dir.exists(gpath)){
   if(length(grep(study,list.files(gpath))) == 0){
@@ -179,6 +189,13 @@ if(dir.exists(gpath)){
   cat("\nERROR: Gene directory does not exist")
   err <- 1;
 }
+
+#Check annotation directory exists
+if(!dir.exists(annodir)){
+  cat("\nERROR: Annotation files directory does not exist")
+  err <- 1;
+}
+
 #Check model is linear or glm
 if(!(model %in% c("linear", "glm"))){
   cat("\nERROR: model must be either linear, or glm.");
@@ -244,7 +261,7 @@ dt_ana <- dt_ana[,c(outcome, all.vars(form)),with=FALSE]
 #Number of workers, without the master thread
 nworkers <- mpi.comm.size() - 1
 
-#Fit functions: workhorse functions are #RcppEigen::fastLmPure for linear models 
+#Define fit functions: workhorse functions are #RcppEigen::fastLmPure for linear models 
 #and speedglm::speedglm for generalized linear models
 qfit_lm <- function(gnow){
   ind <- which(!is.na(gnow))
@@ -256,8 +273,8 @@ qfit_glm <- function(gnow){
   ind <- which(!is.na(gnow))
   X[,gpos] <- gnow
   tm <- try(speedglm.wfit(y[ind],X[ind,],FALSE, 
-                          family=do.call(glmfam,as.list(glmlink)),
-                          set.default=list(row.chunk=2000)), TRUE)
+                          family=do.call(glmfam,as.list(glmlink)), #get(glmfam)(glmlink) maybe clearer
+                          set.default=list(row.chunk=2000)), TRUE) 
   if(class(tm) == "try-error") return(as.list(as.numeric(c(NA,NA,NA,0))))
   c(as.list(as.numeric(as.matrix(summary(tm)$coefficients[gpos,-3]))),1)
 }
@@ -276,7 +293,7 @@ if(model == "linear"){
 cat("\t Formula:", paste(form), "\n")
 cat("\nRun details:\n")
 cat("\t Chromosomes:", chr,"\n")
-cat("\t # Observations in both phenotype and genotype files:", nrow(dt_ana),"\n")
+cat("\t N Observations in both phenotype and genotype files:", nrow(dt_ana),"\n")
 if(norun == FALSE) cat("\t # of workers:", nworkers,"\n")
 
 #Sanity check
@@ -320,9 +337,9 @@ mpi.bcast.cmd({
 
 #Split convenience function
 splitup <- function(a, n) lapply(split(a[1]:a[2], cut(a[1]:a[2], n)), range)
-if(mergeout == TRUE){
-  if(chr == 1:22){ rname <- paste0(resdir,"/allchr_",outcome,"_",study,"_results.csv")
-  }else rname <- paste0(resdir,"/partial_",outcome,"_",study,"_results.csv")
+if(!nomerge){
+  if(identical(sort(chr), 1:22)){ rname <- paste0(resdir,"/allchr_",outcome,"_",study,"_results.csv")
+  }else rname <- paste0(resdir,"/partial_run_",outcome,"_",study,"_results.csv")
 }
 
 #Start loop over chromosomes
@@ -330,7 +347,7 @@ cat("\nStarting main loop at:",format(Sys.time(),"%H:%M:%S"))
 for(i in chr){
   #misc: get #snps, make output file name, send chromosome # to workers...
   mpi.bcast.Robj2slave(i)
-  if(!mergeout) rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
+  if(nomerge) rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
   nsnp <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))$dim$SNPs$len
   
   #splitup task into optimized # of chunks
@@ -339,13 +356,11 @@ for(i in chr){
     start <- k[1]; end <- k[2]; span <- k[2]-k[1]+1
     #Open nc file, get SNP names and create results dataset
     nc <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))
-    snp_names <- ncvar_get(nc, "SNP_Name",c(1,start), c(-1,span))
+    snp_names <- substring(ncvar_get(nc, "SNP_Name",c(1,start), c(-1,span)),3+(i>9))
     res_part <- data.table(
       index = as.integer(start:end), 
-      snp = snp_names, 
-      coded = ncvar_get(nc,"Allele1_Reference", start, span), 
-      other = ncvar_get(nc,"Allele2_Reference", start, span),
-      caf = as.numeric(NA), b = as.numeric(NA), se = as.numeric(NA), 
+      snp = snp_names, caf = as.numeric(NA), 
+      b = as.numeric(NA), se = as.numeric(NA), 
       p = as.numeric(NA), j = seq_along(start:end))
     if(model == "glm") res_part[,conv := as.numeric(NA)]
     
@@ -383,8 +398,18 @@ for(i in chr){
   res[,chr := i]
   res[,j := NULL]
   
+  #Combine with annotations
+  if(!noanno){
+    load(paste0(annodir,study,"_snp_summary_chr",i,".Rdata"))
+    setDT(snpSum)
+    res[,snp_name := snpSum[,SNP_Name]]
+    res[,paste0("caf_",study) := snpSum[,CAF]]
+    res[,imputed := snpSum[,Imputed]]
+    res[,r2 := snpSum[,R2]]
+    rm(snpSum)
+  }
   #Write to file
-  if(!mergeout || i == 1){ fwrite(res, rname, sep = ",")
+  if(nomerge || i == chr[1]){ fwrite(res, rname, sep = ",")
   }else fwrite(res, rname, sep = ",", append = TRUE)
   cat("\nDone with chromosome:",i,"at:",format(Sys.time(),"%H:%M:%S"),
       ". Size of output: ", format(object.size(res), units = "MB"),"\n")

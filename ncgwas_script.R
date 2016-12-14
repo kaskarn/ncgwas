@@ -164,7 +164,7 @@ def <- list(
   resdir = "ncgwas_results", model = "linear",
   gpath = "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/ncdf-data/",
   nomerge = FALSE, noanno = FALSE, 
-  annodir = "/nas02/depts/epi/Genetic_Data_Center/whi_share/whi_1000g_fh_imp/snp-summary-files/",
+  annodir = "/nas02/depts/epi/CVDGeneNas/antoine/annotations",
   glmfam = "binomial", glmlink = substitute(get(glmfam)()$link), mincaf = 0
 )
 if(exists("model") & model != "glm") def$glmfam <- def$glmlink <- NULL
@@ -178,6 +178,10 @@ if(!file.exists(pheno)){
   cat("\nERROR: Phenotype file does not exist")
   err <- 1;
 }
+
+#####################################################################################
+##############################    Catch errors    ###################################
+#####################################################################################
 
 #Check gene folder exists and contains study
 if(dir.exists(gpath)){
@@ -208,7 +212,7 @@ if(err > 0){
   mpi.quit()  
 }
 #####################################################################################
-#################################   Setup step   ####################################
+###############################   Setup step    #####################################
 #####################################################################################
 
 #Create directory/ies for results
@@ -341,7 +345,6 @@ if(!nomerge){
   if(identical(sort(chr), 1:22)){ rname <- paste0(resdir,"/allchr_",outcome,"_",study,"_results.csv")
   }else rname <- paste0(resdir,"/partial_run_",outcome,"_",study,"_results.csv")
 }
-
 #Start loop over chromosomes
 cat("\nStarting main loop at:",format(Sys.time(),"%H:%M:%S"))
 for(i in chr){
@@ -356,18 +359,21 @@ for(i in chr){
     start <- k[1]; end <- k[2]; span <- k[2]-k[1]+1
     #Open nc file, get SNP names and create results dataset
     nc <- nc_open(paste0(gpath,study,'-chr',i,'-c.nc'))
-    snp_names <- substring(ncvar_get(nc, "SNP_Name",c(1,start), c(-1,span)),3+(i>9))
+    pos <- as.numeric(tstrsplit(ncvar_get(nc, "SNP_Name",c(1,start), c(-1,span)),":")[[2]])
     res_part <- data.table(
       index = as.integer(start:end), 
-      snp = snp_names, caf = as.numeric(NA), 
-      b = as.numeric(NA), se = as.numeric(NA), 
-      p = as.numeric(NA), j = seq_along(start:end))
+      pos = as.numeric(pos), 
+      coded = ncvar_get(nc,"Allele1_Reference", start, span), 
+      other = ncvar_get(nc,"Allele2_Reference", start, span), 
+      caf = as.numeric(NA), b = as.numeric(NA), se = as.numeric(NA), 
+      p = as.numeric(NA), j = seq_along(start:end), key = "pos")
     if(model == "glm") res_part[,conv := as.numeric(NA)]
     
     #Read dosages at relevant indices, and restrict to participants also in phenotype file
-    p_aa <- ncvar_get(nc,"Prob_AA", start=c(start,1), count=c(span, -1))[,nckeep]
-    p_ab <- ncvar_get(nc,"Prob_AB", start=c(start,1), count=c(span, -1))[,nckeep]
-    dos <- p_aa*2 + p_ab
+    #dos <- p_aa*2 + p_ab
+    dos <- ncvar_get(nc,"Prob_AA", start=c(start,1), count=c(span, -1))[,nckeep]
+    dos <- dos + 2*(ncvar_get(nc,"Prob_AB", start=c(start,1), count=c(span, -1))[,nckeep])
+    
     
     #Add allele frequency, variance and nonomissing N
     res_part[,c("caf", "v", "n") := list(mean(dos[j,]/2, na.rm = TRUE), 
@@ -381,7 +387,7 @@ for(i in chr){
     }else res_part[n > 0 & abs(1-caf) > mincaf & v > 0, c("b", "se","p","conv") := qfit_glm(dos[j,]), j]
     
     #Return data.table copy to avoid memory leaks
-    rm(p_aa, p_ab, dos);gc()
+    rm(dos);gc()
     copy(res_part)
   })
   #For debugging

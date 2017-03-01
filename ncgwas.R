@@ -403,7 +403,7 @@ for(i in chr){
   #Write previous chromosome output while new one computing
   if(i != chr[1]){
     snpSum <- biganno[snpSum]
-    fwrite(snpSum, rname, sep = ",", append = (!nomerge & i != chr[2]), showProgress = FALSE)
+    invisible(fwrite(snpSum, rname, sep = ",", append = (!nomerge & i != chr[2])))
   }
   if(nomerge) rname <- paste0(resdir,"/Chr",i,"_",outcome,"_",study,"_results.csv")
   
@@ -421,6 +421,8 @@ for(i in chr){
   load(paste0(annodir,study,"_snp_summary_chr",i,".Rdata"))
   setDT(snpSum)
   snpSum[,chr := as.integer(i)]
+  snpSum[,ref_allele := factor(Baseline_Allele, labels = c("A", "C", "G", "T", "I", "D", "R"))]
+  snpSum[,eff_allele := factor(Count_Allele, labels = c("A", "C", "G", "T", "I", "D", "R"))]
   
   #Grab output from worker threads
   for (j in seq_along(bits)){
